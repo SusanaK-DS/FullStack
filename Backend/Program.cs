@@ -1,4 +1,7 @@
-using Microsoft.EntityFrameworkCore;
+using Backend.Data;
+using Dapper;
+using Microsoft.OpenApi.Models;
+using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -6,46 +9,72 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 if (string.IsNullOrWhiteSpace(connectionString))
     throw new InvalidOperationException("Connection string 'DefaultConnection' is missing. Set it in appsettings.json or environment variable ConnectionStrings__DefaultConnection.");
 
-builder.Services.AddOpenApi();
-builder.Services.AddDbContext<LibraryContext>(options =>
-    options.UseNpgsql(connectionString));
+builder.Services.AddSingleton<NpgsqlDataSource>(_ => new NpgsqlDataSourceBuilder(connectionString).Build());
+builder.Services.AddScoped<IBookRepository, BookRepository>();
+
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "Library API",
+        Version = "v1",
+        Description = "Books CRUD and health endpoints"
+    });
+});
 
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
-    using (var scope = app.Services.CreateScope())
+    app.UseSwagger();
+    app.UseSwaggerUI(options =>
     {
-        var db = scope.ServiceProvider.GetRequiredService<LibraryContext>();
-        await db.Database.MigrateAsync();
+        options.SwaggerEndpoint("/swagger/v1/swagger.json", "Library API v1");
+        options.RoutePrefix = "swagger";
+    });
+
+    try
+    {
+        var dataSource = app.Services.GetRequiredService<NpgsqlDataSource>();
+        await using var conn = await dataSource.OpenConnectionAsync();
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS Books (
+                Id SERIAL PRIMARY KEY,
+                Title CHARACTER VARYING(500) NOT NULL,
+                Author CHARACTER VARYING(200) NOT NULL
+            );
+            """);
+    }
+    catch (Exception ex)
+    {
+        var logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
+        logger.LogWarning(ex, "Could not connect to the database during startup; ensure PostgreSQL is running. The API will still start.");
     }
 }
 
-app.UseHttpsRedirection();
+// In Development, skip redirect so HTTP (e.g. curl http://localhost:5259) is not sent to HTTPS with a dev certificate.
+if (!app.Environment.IsDevelopment())
+    app.UseHttpsRedirection();
 
-app.MapGet("/api/books", async (LibraryContext db) =>
-    await db.Books.AsNoTracking().OrderBy(b => b.Id).ToListAsync())
-.WithName("GetBooks");
-
-app.MapGet("/api/books/{id:int}", async (int id, LibraryContext db) =>
-    await db.Books.AsNoTracking().FirstOrDefaultAsync(b => b.Id == id) is { } book
-        ? Results.Ok(book)
-        : Results.NotFound())
-.WithName("GetBookById");
-
-app.MapPost("/api/books", async (CreateBookDto dto, LibraryContext db) =>
+app.MapGet("/api/health/db", async (NpgsqlDataSource dataSource) =>
 {
-    if (string.IsNullOrWhiteSpace(dto.Title) || string.IsNullOrWhiteSpace(dto.Author))
-        return Results.BadRequest(new { error = "Title and Author are required." });
-
-    var book = new Book { Title = dto.Title.Trim(), Author = dto.Author.Trim() };
-    db.Books.Add(book);
-    await db.SaveChangesAsync();
-    return Results.Created($"/api/books/{book.Id}", book);
+    try
+    {
+        await using var conn = await dataSource.OpenConnectionAsync();
+        await conn.ExecuteScalarAsync<int>("SELECT 1");
+        return Results.Ok(new { connected = true, message = "Database connection succeeded." });
+    }
+    catch (Exception ex)
+    {
+        return Results.Json(
+            new { connected = false, message = "Database connection failed.", error = ex.Message },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
 })
-.WithName("CreateBook");
+.WithName("CheckDatabaseConnection");
+
+app.MapControllers();
 
 app.Run();
-
-record CreateBookDto(string Title, string Author);

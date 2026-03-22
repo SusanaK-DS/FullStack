@@ -1,6 +1,21 @@
 @Backend_HostAddress = http://localhost:5259
 
-GET {{Backend_HostAddress}}/weatherforecast/
+### Check PostgreSQL connection
+GET {{Backend_HostAddress}}/api/health/db
 Accept: application/json
+
+###
+
+PUT {{Backend_HostAddress}}/api/books/1
+Content-Type: application/json
+
+{
+  "title": "Updated title",
+  "author": "Updated author"
+}
+
+###
+
+DELETE {{Backend_HostAddress}}/api/books/1
 
 ###
