@@ -1,64 +1,64 @@
-using Backend.Data;
 using Backend.Models;
+using Backend.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Backend.Controllers;
 
 [ApiController]
-[Route("api/books")]
+[Route("api/[controller]")]
 public class BooksController : ControllerBase
 {
-    private readonly IBookRepository _books;
+    private readonly IBookService _bookService;
 
-    public BooksController(IBookRepository books) => _books = books;
+    public BooksController(IBookService bookService) => _bookService = bookService;
 
-    [HttpGet]
-    [ProducesResponseType(typeof(IReadOnlyList<Book>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<IReadOnlyList<Book>>> GetAll(CancellationToken cancellationToken)
-        => Ok(await _books.GetAllAsync(cancellationToken));
-
-    [HttpGet("{id:int}")]
-    [ProducesResponseType(typeof(Book), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<Book>> GetById(int id, CancellationToken cancellationToken)
+    [HttpPost("getList")]
+    [ProducesResponseType(typeof(BaseResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<BaseResponse>> GetAll(CancellationToken cancellationToken)
     {
-        var book = await _books.GetByIdAsync(id, cancellationToken);
-        return book is null ? NotFound() : Ok(book);
+        var response = await _bookService.GetBooksAsync(cancellationToken);
+        return StatusCode((int)response.HttpStatus, response);
     }
 
-    [HttpPost]
-    [ProducesResponseType(typeof(Book), StatusCodes.Status201Created)]
+    [HttpGet("getById/{id:int}")]
+    [ProducesResponseType(typeof(BaseResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<BaseResponse>> GetById(int id, CancellationToken cancellationToken)
+    {
+        var response = await _bookService.GetBookByIdAsync(id, cancellationToken);
+        return StatusCode((int)response.HttpStatus, response);
+    }
+
+    [HttpPost("create")]
+    [ProducesResponseType(typeof(BaseResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<Book>> Create(
+    public async Task<ActionResult<BaseResponse>> Create(
         [FromBody] CreateBookRequest dto,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(dto.Title) || string.IsNullOrWhiteSpace(dto.Author))
-            return BadRequest(new { error = "Title and Author are required." });
-
-        var book = await _books.CreateAsync(dto.Title.Trim(), dto.Author.Trim(), cancellationToken);
-        return CreatedAtAction(nameof(GetById), new { id = book.Id }, book);
+        var response = await _bookService.CreateBookAsync(dto, cancellationToken);
+        return StatusCode((int)response.HttpStatus, response);
     }
 
-    [HttpPut("{id:int}")]
-    [ProducesResponseType(typeof(Book), StatusCodes.Status200OK)]
+    [HttpPost("update/{id:int}")]
+    [ProducesResponseType(typeof(BaseResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<Book>> Update(
+    public async Task<ActionResult<BaseResponse>> Update(
         int id,
         [FromBody] UpdateBookRequest dto,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(dto.Title) || string.IsNullOrWhiteSpace(dto.Author))
-            return BadRequest(new { error = "Title and Author are required." });
-
-        var book = await _books.UpdateAsync(id, dto.Title.Trim(), dto.Author.Trim(), cancellationToken);
-        return book is null ? NotFound() : Ok(book);
+        var response = await _bookService.UpdateBookAsync(id, dto, cancellationToken);
+        return StatusCode((int)response.HttpStatus, response);
     }
 
-    [HttpDelete("{id:int}")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [HttpPost("delete/{id:int}")]
+    [ProducesResponseType(typeof(BaseResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
-        => await _books.DeleteAsync(id, cancellationToken) ? NoContent() : NotFound();
+    public async Task<ActionResult<BaseResponse>> Delete(int id, CancellationToken cancellationToken)
+    {
+        var response = await _bookService.DeleteBookAsync(id, cancellationToken);
+        return StatusCode((int)response.HttpStatus, response);
+    }
 }

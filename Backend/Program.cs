@@ -1,4 +1,5 @@
 using Backend.Data;
+using Backend.Services;
 using Dapper;
 using Microsoft.OpenApi.Models;
 using Npgsql;
@@ -11,6 +12,7 @@ if (string.IsNullOrWhiteSpace(connectionString))
 
 builder.Services.AddSingleton<NpgsqlDataSource>(_ => new NpgsqlDataSourceBuilder(connectionString).Build());
 builder.Services.AddScoped<IBookRepository, BookRepository>();
+builder.Services.AddScoped<IBookService, BookService>();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
